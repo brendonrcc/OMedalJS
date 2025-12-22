@@ -1141,10 +1141,10 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
     const CACHE_DURATION_MS = 1000 * 60 * 5; 
 
     const RANK_CONFIG = {
-        'Professor': { gid: '0', topicId: '1', nickCol: 19, classCols: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30], headerLabels: ['APB', 'API', 'APA', 'AFP', 'AFO', 'CICE', 'Av.CE', 'AFCE', 'ASC', 'DOA', 'ACOM'], weights: [25, 20, 20, 15, 15, 15, 25, 15, 20, 0, 10], statusCol: 33, checkCol: 31, period: 'SEMANAL', superiorKeywords: ["mentor", "capacitador", "graduador", "estagiário", "ministro", "vice-líder", "líder"] },
-        'Mentor': { gid: '972474941', topicId: '2', nickCol: 17, classCols: [18, 19, 20, 21], headerLabels: ['AS', 'ACOM', 'SUPL', 'IAL'], weights: [50, 75, 50, 25], statusCol: 24, checkCol: 22, period: 'SEMANAL', superiorKeywords: ["capacitador", "graduador", "estagiário", "ministro", "vice-líder", "líder"] },
-        'Capacitador': { gid: '1681958430', topicId: '3', nickCol: 17, classCols: [18 ,19, 20, 21, 22, 23], headerLabels: ['CTP', 'CPP', 'CPM', 'CED', 'AEB', 'TCE'], weights: [50, 50, 50, 50, 50, 50], statusCol: 26, checkCol: 24, period: 'SEMANAL', superiorKeywords: ["graduador", "estagiário", "ministro", "vice-líder", "líder"] },
-        'Graduador': { gid: '1707625426', topicId: '4', nickCol: 17, classCols: [18, 19, 20],  headerLabels: ['Básica', 'Inter.', 'Avançada'], weights: [1, 1, 1], statusCol: 23, checkCol: 21, period: 'QUINZENAL', superiorKeywords: ["Estagiário(a)", "ministro(a)", "vice-líder", "líder"] }
+        'Professor': { gid: '0', topicId: '38482', nickCol: 19, classCols: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30], headerLabels: ['APB', 'API', 'APA', 'AFP', 'AFO', 'CICE', 'Av.CE', 'AFCE', 'ASC', 'DOA', 'ACOM'], weights: [25, 20, 20, 15, 15, 15, 25, 15, 20, 0, 10], statusCol: 33, checkCol: 31, period: 'SEMANAL', superiorKeywords: ["mentor", "capacitador", "graduador", "estagiário", "ministro", "vice-líder", "líder"] },
+        'Mentor': { gid: '972474941', topicId: '38483', nickCol: 17, classCols: [18, 19, 20, 21], headerLabels: ['AS', 'ACOM', 'SUPL', 'IAL'], weights: [50, 75, 50, 25], statusCol: 24, checkCol: 22, period: 'SEMANAL', superiorKeywords: ["capacitador", "graduador", "estagiário", "ministro", "vice-líder", "líder"] },
+        'Capacitador': { gid: '1681958430', topicId: '38625', nickCol: 17, classCols: [18 ,19, 20, 21, 22, 23], headerLabels: ['CTP', 'CPP', 'CPM', 'CED', 'AEB', 'TCE'], weights: [50, 50, 50, 50, 50, 50], statusCol: 26, checkCol: 24, period: 'SEMANAL', superiorKeywords: ["graduador", "estagiário", "ministro", "vice-líder", "líder"] },
+        'Graduador': { gid: '1707625426', topicId: '38484', nickCol: 17, classCols: [18, 19, 20],  headerLabels: ['Básica', 'Inter.', 'Avançada'], weights: [1, 1, 1], statusCol: 23, checkCol: 21, period: 'QUINZENAL', superiorKeywords: ["Estagiário(a)", "ministro(a)", "vice-líder", "líder"] }
     };
 
     let currentRankKey = '';
@@ -1773,11 +1773,10 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
         btn.disabled = true;
         btn.innerText = "Postando...";
         
-        // 1. Obter Tokens do Tópico 7
         try {
-            await fetchTopicTokens('7'); // Força pegar tokens do tópico 7
+            await fetchTopicTokens('38830'); 
         } catch(e) {
-            showToast("Erro ao conectar com tópico de destaques (t=7).", "error");
+            showToast("Erro ao conectar com tópico de destaques.", "error");
             btn.disabled = false; btn.innerHTML = '<i class="fas fa-trophy"></i> <span>Postar Destaques</span>';
             return;
         }
