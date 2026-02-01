@@ -1,26 +1,99 @@
-        function toggleTurbo() {
+   // GLOBAL GRATIFICATION LIST
+    let globalGratificationSet = new Set();
+
+    // Helper for cleaning cells globally
+    function cleanCell(c) { return c ? c.replace(/^"|"$/g, '').trim() : ""; }
+
+    function openGratModal() {
+        document.getElementById('startup-grat-modal').classList.add('open');
+    }
+
+    function saveGlobalGratifications() {
+        const text = document.getElementById('startup-grat-input').value;
+        globalGratificationSet.clear();
+        
+        if (text) {
+            const lines = text.split('\n');
+            lines.forEach(l => {
+                const clean = l.trim().replace(/^[•\-✮\s]+/, '').replace(/\[.*?\]/g, '').trim();
+                const n = clean.split(/\s+/)[0];
+                if(n && n.length > 2) globalGratificationSet.add(n.toLowerCase());
+            });
+            showToast(`Lista salva com ${globalGratificationSet.size} membros.`, 'success');
+        } else {
+            showToast("Lista vazia ou pulada.", 'info');
+        }
+        
+        document.getElementById('startup-grat-modal').classList.remove('open');
+        
+        // Refresh views if they are open
+        if(!document.getElementById('view-metas').classList.contains('hidden-view') && els.titleSelect.value) {
+            fetchAndRenderTarget(els.titleSelect.value);
+        }
+        if(!document.getElementById('subview-general').classList.contains('hidden') && document.getElementById('gen-input-text').value) {
+            parseGeneralReport();
+        }
+    }
+
+    function toggleTurbo() {
         const body = document.body;
         const btn = document.getElementById('turbo-btn');
+        const icon = btn.querySelector('i');
+        
         body.classList.toggle('turbo-mode');
         const isActive = body.classList.contains('turbo-mode');
+        
         if (isActive) {
             btn.classList.add('active');
+            icon.className = 'fas fa-bolt';
         } else {
             btn.classList.remove('active');
+            icon.className = 'fas fa-rocket';
         }
         localStorage.setItem('om_turbo_mode', isActive);
     }
+
+    // --- GLOBAL FUNCTIONS TO FIX REFERENCE ERRORS ---
+    function toggleBBCodeEditor() {
+        const container = document.getElementById('bbcode-editor-container');
+        const btnText = document.getElementById('btn-toggle-text');
+        if (!container || !btnText) return;
+        
+        const isHidden = container.classList.contains('hidden');
+        if(isHidden) {
+            container.classList.remove('hidden');
+            btnText.innerText = "Ocultar Editor";
+        } else {
+            container.classList.add('hidden');
+            btnText.innerText = "Editar BBCode";
+        }
+    }
+
+    function closePostModal() {
+        document.getElementById('post-confirm-modal').classList.remove('open');
+    }
+    // ------------------------------------------------
 
     window.addEventListener('DOMContentLoaded', () => {
         const isTurbo = localStorage.getItem('om_turbo_mode') === 'true';
         if(isTurbo) {
             document.body.classList.add('turbo-mode');
             if(document.getElementById('turbo-btn')) {
-                document.getElementById('turbo-btn').classList.add('active');
+                const btn = document.getElementById('turbo-btn');
+                btn.classList.add('active');
+                btn.querySelector('i').className = 'fas fa-bolt';
             }
+        } else {
+             // Default state icon
+             if(document.getElementById('turbo-btn')) {
+                document.getElementById('turbo-btn').querySelector('i').className = 'fas fa-rocket';
+             }
         }
         init(); 
         
+        // Open Modal Startup
+        setTimeout(() => openGratModal(), 500);
+
         const ySelect = document.getElementById('lid-year');
         if(ySelect) {
             const currentY = new Date().getFullYear();
@@ -45,10 +118,6 @@
 
         document.getElementById(`view-${viewName}`).classList.remove('hidden-view');
         document.getElementById(`tab-${viewName}`).classList.add('active');
-
-        if(viewName === 'medalhas' && medalData.length === 0) {
-            initMedalSystem();
-        }
     }
 
     function toggleMedalSubTab(tab) {
@@ -598,39 +667,51 @@
             } catch(e) { console.warn("Cache read error", e); }
         }
 
+        // Improved proxy list and order
         const proxies = [
             (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-            (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-            (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}` 
+            (url) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+            (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
         ];
         
         for (const proxyGen of proxies) {
             try {
                 let finalUrl = proxyGen(targetUrl);
+                // AllOrigins requires parsing JSON 'contents'
+                const isAllOrigins = finalUrl.includes('allorigins');
+                
                 if (forceBypassCache) {
                     finalUrl += (finalUrl.includes('?') ? '&' : '?') + 't_buster=' + Date.now();
                 }
 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 8000); 
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // Increased timeout
 
                 const resp = await fetch(finalUrl, { signal: controller.signal });
                 clearTimeout(timeoutId);
 
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                if (!resp.ok) {
+                    console.warn(`Proxy ${finalUrl} failed with status ${resp.status}`);
+                    continue; 
+                }
                 
-                const text = await resp.text();
+                let text = "";
+                if(isAllOrigins) {
+                    const json = await resp.json();
+                    text = json.contents;
+                } else {
+                    text = await resp.text();
+                }
             
                 if (text && text.length > 30 && !text.includes('Access Denied') && !text.includes('404 Not Found')) {
                     try { localStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), data: text })); } catch(e) {}
                     return text;
                 }
-                throw new Error("Resposta vazia ou inválida");
             } catch (err) { 
-                console.warn(`Proxy falhou: ${proxyGen(targetUrl).split('?')[0]}`, err); 
+                console.warn(`Proxy tentativa falhou: ${err.message}`); 
             }
         }
-        throw new Error("Falha na conexão. Tente novamente.");
+        throw new Error("Não foi possível carregar os dados. Verifique sua conexão ou tente mais tarde.");
     }
 
     async function reloadMetas() {
@@ -670,436 +751,210 @@
         }
     }
 
-    async function reloadMedals() {
-        const btn = event.currentTarget;
-        const icon = btn.querySelector('i');
-        icon.classList.add('fa-spin');
-        
-        try {
-            forceBypassCache = true;
-            const url = `https://docs.google.com/spreadsheets/d/${MEDAL_SHEET_ID}/export?gid=${MEDAL_GID}&format=tsv`;
-            const cacheKey = `EFE_CACHE_V2_${url}`;
-            localStorage.removeItem(cacheKey);
-
-            await initMedalSystem();
-            showToast("Dados de medalhas atualizados!", "success");
-        } catch (e) {
-            console.error(e);
-            showToast("Erro ao atualizar medalhas.", "error");
-        } finally {
-            icon.classList.remove('fa-spin');
-            forceBypassCache = false;
-        }
-    }
-
-    async function getOceanMPTemplate(status, cargo, nick) {
-        let subject = "";
-        let message = "";
-        const today = new Date().toLocaleDateString('pt-BR');
-
-        if (status === 'Positivo') {
-            subject = `[EFE] Gratificação de Metas - ${cargo}`;
-            message = `Olá, [b]${nick}[/b]!\n\nParabéns! Constatamos que você cumpriu sua meta como [b]${cargo}[/b] nesta semana.\n\nSua medalha de gratificação já foi solicitada. Continue com o excelente trabalho!\n\nAtenciosamente,\n[b]Liderança EFE[/b]`;
-            return { subject, message };
-        }
-        else if (status === 'Negativo') {
-            const isProfessor = cargo.toLowerCase().includes('professor');
-            
-            let tipoCarta = "META NÃO CUMPRIDA";
-            let infracao = `não cumprimento da meta obrigatória referente ao cargo de [b]${cargo}[/b]`;
-            let medalhas = "15 Medalhas Efetivas Negativas"; 
-            let advertenciaTexto = " e uma Advertência Interna";
-
-            if (isProfessor) {
-                tipoCarta = "META NÃO CUMPRIDA"; 
-                medalhas = "10 Medalhas Efetivas Negativas"; 
-                advertenciaTexto = ""; 
-            } else if (cargo.toLowerCase().includes('graduador')) {
-                medalhas = "25 Medalhas Efetivas Negativas";
-            }
-            
-            const bbcode = `[font=Poppins][table style="border: none!important; border-radius: 15px; width: auto; margin: 0 auto; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);" bgcolor="#79a8c3"][tr style="border: none!important"][td style="border: none!important; padding: 7px"][table style="border: none!important; width: 100%; border-radius: 15px;" bgcolor="#25313a"][tr style="border: none!important"][td style="border: none!important; padding: 14px"][img]https://i.imgur.com/S1tKqgc.gif[/img]
-[table style="border: none!important; border-radius: 40px; width: 40%; margin: -2% auto; position: relative;" bgcolor="79a8c3"][tr style="border: none!important"][td style="border: none!important"][center][color=white][b][size=16]CARTA DE ${tipoCarta}[/size][/b][/color][/center]
-[/td][/tr][/table][table style="border: none!important; width: 100%; border-radius: 15px; line-height: 1.4em;" bgcolor="f8f8ff"][tr style="border: none!important"][td style="border: none!important"]
-Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
-
-[justify]Venho informar que você está sendo punido(a) por ${infracao} na [b][color=#79a8c3]Escola de Formação de Executivos[/color][/b]. A penalização aplicada será: [color=#79a8c3][b]${medalhas}${advertenciaTexto}[/b][/color].[/justify]
-
-[/td][/tr][/table]
-[size=11][color=white]Desenvolvido por [b]Brendon[/b] | Todos os direitos reservados à [b]Escola de Formação de Executivos[/b].[/color][/size]
-[/td][/tr][/table][/td][/tr][/table][/font]`;
-
-            return {
-                subject: `[EFE] ${tipoCarta} - LEIA!`,
-                message: bbcode
-            };
-        }
-        else return null; 
-    }
-
-    async function sendPrivateMessage(username, subject, message) {
-        try {
-            const composeResp = await fetch('/privmsg?mode=post', {
-                credentials: 'same-origin',
-                headers: { 'Cache-Control': 'no-store, no-cache' }
-            });
-
-            if (!composeResp.ok) {
-                console.error(`Falha ao abrir formulário de MP. Status: ${composeResp.status}`);
-                return false;
-            }
-
-            const html = await composeResp.text();
-            const dom = new DOMParser().parseFromString(html, 'text/html');
-            const form = dom.querySelector('form[action*="/privmsg"]');
-            
-            if (!form) {
-                console.error('Formulário de MP não encontrado.');
-                return false;
-            }
-
-            const formData = new FormData();
-            let hasUsernameArrayField = false;
-
-            form.querySelectorAll('input, textarea, select').forEach(el => {
-                const name = el.getAttribute('name');
-                if (!name) return;
-                if (name === 'username[]') hasUsernameArrayField = true;
-                if (['message', 'subject', 'post', 'preview'].includes(name)) return; 
-                if ((el.type === 'checkbox' || el.type === 'radio') && !el.checked) return;
-                formData.append(name, el.value || '');
-            });
-
-            if (hasUsernameArrayField) formData.set('username[]', username);
-            else formData.set('username', username);
-
-            formData.set('subject', subject);
-            formData.set('message', message);
-            formData.set('post', '1'); 
-
-            const action = form.getAttribute('action') || '/privmsg';
-
-            const sendResp = await fetch(action, {
-                method: 'POST', body: formData, credentials: 'same-origin'
-            });
-
-            if (!sendResp.ok) return false;
-
-            const responseText = await sendResp.text();
-            const textLower = responseText.toLowerCase();
-
-            if (textLower.includes('usuário requerido não existe') || textLower.includes('o usuário requerido não existe')) {
-                return 'USER_NOT_FOUND';
-            }
-            if (textLower.includes('flood') || textLower.includes('muito rapidamente')) {
-                return 'FLOOD';
-            }
-
-            return 'OK';
-
-        } catch (error) {
-            console.error('Erro de rede:', error);
-            return false;
-        }
-    }
-
     function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
-
-    const MEDAL_SHEET_ID = "1rfO0LHwXzRQnKfDvD4yVkVboEGG_OXFtpXHXBi3MFAY";
-    const MEDAL_GID = "1008047655";
-    let medalData = []; 
-
-    async function initMedalSystem() {
-        const dateSelect = document.getElementById('med-date');
-        dateSelect.innerHTML = '<option value="">Carregando...</option>';
-        dateSelect.disabled = true;
-        try {
-            const url = `https://docs.google.com/spreadsheets/d/${MEDAL_SHEET_ID}/export?gid=${MEDAL_GID}&format=tsv`;
-            const text = await fetchSmart(url); 
-            parseMedalData(text);
-        } catch (e) {
-            showToast("Erro ao carregar planilha: " + e.message, "error");
-            dateSelect.innerHTML = '<option value="">Erro</option>';
-        } finally {
-            resetDateSelect();
-        }
-    }
-
-    function parseMedalData(tsvText) {
-        const rows = tsvText.split('\n').map(l => l.split('\t')).filter(r => r.length > 1);
-        medalData = [];
-        for(let i=1; i<rows.length; i++) {
-            const col = rows[i];
-            if(col.length < 4) continue;
-            const dataRef = col[0]?.trim();
-            const cargo = col[1]?.trim(); 
-            const status = col[2]?.trim(); 
-            const nick = col[3]?.trim(); 
-            if(dataRef && cargo && status && nick) medalData.push({ dataRef, cargo, status, nick });
-        }
-    }
-
-    function resetDateSelect() {
-        const dateSelect = document.getElementById('med-date');
-        dateSelect.innerHTML = '<option value="">Selecione o Cargo...</option>';
-        dateSelect.disabled = true;
-    }
-
-    function updateDateOptions() {
-        const role = document.getElementById('med-role').value;
-        const dateSelect = document.getElementById('med-date');
-        document.getElementById('med-result').innerText = "";
-        document.getElementById('med-count').innerText = "0 encontrados";
-        document.getElementById('btn-medal-link').disabled = true;
-        document.getElementById('btn-punishment').classList.add('hidden');
-        document.getElementById('btn-mp').classList.add('hidden');
-        document.getElementById('inactive-result-container').classList.add('hidden');
-
-        if (!role) { resetDateSelect(); return; }
-
-        const availableDates = new Set();
-        medalData.forEach(r => { if (r.cargo.includes(role)) availableDates.add(r.dataRef); });
-
-        dateSelect.innerHTML = '<option value="">Selecione a data...</option>';
-        if (availableDates.size === 0) {
-            dateSelect.innerHTML += '<option value="" disabled>Nenhuma data</option>';
-        } else {
-            const sortedDates = Array.from(availableDates).sort().reverse();
-            sortedDates.forEach(d => dateSelect.innerHTML += `<option value="${d}">${d}</option>`);
-            dateSelect.disabled = false;
-        }
-        filterMedalData();
-    }
-
-    function filterMedalData() {
-        const role = document.getElementById('med-role').value;
-        const status = document.getElementById('med-status').value;
-        const date = document.getElementById('med-date').value;
-        const resultArea = document.getElementById('med-result');
-        const countDiv = document.getElementById('med-count');
-        const btnMedal = document.getElementById('btn-medal-link');
-        const btnWarn = document.getElementById('btn-punishment');
-        const btnMP = document.getElementById('btn-mp');
-
-        if(!role || !status || !date) {
-            resultArea.innerText = "";
-            countDiv.innerText = "0 encontrados";
-            updateMedalLink();
-            return;
-        }
-
-        const filteredNicks = medalData
-            .filter(r => r.dataRef === date && r.status.toLowerCase() === status.toLowerCase() && r.cargo.includes(role))
-            .map(r => r.nick);
-
-        const uniqueNicks = [...new Set(filteredNicks)];
-        resultArea.innerText = uniqueNicks.join(' / ');
-        countDiv.innerText = `${uniqueNicks.length} encontrados`;
-        
-        btnMedal.classList.remove('hidden'); 
-        if (status === 'Positivo') {
-            btnWarn.classList.add('hidden');
-            btnMP.classList.add('hidden');
-        } else {
-            btnWarn.classList.remove('hidden');
-            btnMP.classList.remove('hidden');
-        }
-
-        updateMedalLink();
-        checkActiveMembers(); 
-    }
     
-    function checkActiveMembers() {
-        const filteredText = document.getElementById('med-result').innerText;
-        const activeInputText = document.getElementById('active-list-input').value;
-        const resultContainer = document.getElementById('inactive-result-container');
+    // --- Lógica de Membros Gerais (Parse) ---
+    let generalData = { date: "", positives: [], negatives: [], alreadyPosted: [] };
+
+    function parseGeneralReport() {
+        const text = document.getElementById('gen-input-text').value;
+        const dateInput = document.getElementById('gen-detected-date');
         
-        if (!filteredText || !activeInputText.trim()) {
-            resultContainer.classList.add('hidden');
-            return;
+        // Use Global Gratification List for filtering
+        
+        // Reset lists but keep existing arrays for now
+        let newPositives = [];
+        let newNegatives = [];
+        
+        if(!text) { 
+            dateInput.value = ""; 
+            generalData.positives = [];
+            generalData.negatives = [];
+            renderGeneralResults();
+            return; 
         }
 
-        const filteredList = filteredText.split(' / ').map(n => n.trim()).filter(n => n);
-        const activeSet = new Set();
-        const lines = activeInputText.split('\n');
-
-        lines.forEach(line => {
-            const match = line.trim().match(/^([^\s]+)/); 
-            if (match && match[1]) activeSet.add(match[1].trim().toLowerCase());
-        });
-
-        const missingNicks = filteredList.filter(nick => !activeSet.has(nick.toLowerCase()));
-        const label = document.getElementById('inactive-label');
-        const resultText = document.getElementById('inactive-nicks');
-
-        resultContainer.classList.remove('hidden');
+        // Tentar detectar data
+        const dateRegex = /(?:período de|meta.*de)\s+([0-9]{1,2}\s+[A-Za-zç]+\s+[0-9]{4}\s+(?:a|até)\s+[0-9]{1,2}\s+[A-Za-zç]+\s+[0-9]{4})/i;
+        const dateMatch = text.match(dateRegex);
         
-        if (missingNicks.length > 0) {
-            resultContainer.className = "mt-3 p-3 bg-red-50 border border-red-100 rounded-lg transition-all duration-300";
-            label.className = "text-[10px] font-bold text-red-400 uppercase tracking-wide block mb-1";
-            label.innerText = "Inativos / Saíram (Não encontrados na lista):";
-            resultText.className = "text-sm font-bold text-red-700 font-mono";
-            resultText.innerText = missingNicks.join(' / ');
+        if(dateMatch && dateMatch[1]) {
+            generalData.date = dateMatch[1].trim(); 
+            dateInput.value = generalData.date;
         } else {
-            resultContainer.className = "mt-3 p-3 bg-green-50 border border-green-100 rounded-lg transition-all duration-300";
-            label.className = "text-[10px] font-bold text-green-500 uppercase tracking-wide block mb-1";
-            label.innerText = "Status:";
-            resultText.className = "text-sm font-bold text-green-700 font-mono";
-            resultText.innerHTML = "<i class='fas fa-check-circle mr-1'></i> Todos os filtrados estão ativos!";
-        }
-    }
-
-    function updateMedalLink() {
-        const btn = document.getElementById('btn-medal-link');
-        const responsible = document.getElementById('med-responsible').value;
-        const result = document.getElementById('med-result').innerText;
-        const date = document.getElementById('med-date').value;
-        btn.disabled = !(responsible && result && date);
-    }
-
-    function getActiveNicksFromFilter() {
-        const nicks = document.getElementById('med-result').innerText;
-        const activeInputText = document.getElementById('active-list-input').value;
-        
-        if (!activeInputText || activeInputText.trim() === "") {
-            showToast("A listagem de gratificações está vazia!<br>Portanto, cole a listagem para validar e prosseguir.", "warning", "Ação Bloqueada");
-            return null; 
+            const lines = text.split('\n');
+            let foundDate = false;
+            for(let line of lines) {
+                if(line.match(/[0-9]{1,2}\s+[A-Za-zç]+\s+[0-9]{4}/)) {
+                    generalData.date = line.trim();
+                    dateInput.value = line.trim() + " (Aprox)";
+                    foundDate = true;
+                    break;
+                }
+            }
+            if(!foundDate) dateInput.value = "Data não detectada";
         }
 
-        const currentList = nicks.split(' / ').map(n => n.trim()).filter(n => n);
-        const activeSet = new Set();
-        
-        const lines = activeInputText.split('\n');
+        const lines = text.split('\n');
+        let currentSection = 'none';
+
         lines.forEach(line => {
-            const match = line.trim().match(/^([^\s]+)/); 
-            if (match && match[1]) activeSet.add(match[1].trim().toLowerCase());
-        });
-
-        const activeOnly = currentList.filter(nick => activeSet.has(nick.toLowerCase()));
-        
-        if (activeOnly.length === 0) {
-             showToast("Nenhum membro ativo encontrado na seleção atual.", "error");
-             return [];
-        }
-        
-        return activeOnly;
-    }
-
-    function openMedalLink() {
-        const activeNicks = getActiveNicksFromFilter();
-        if (activeNicks === null) return;
-        if (activeNicks.length === 0) return; 
-
-        const responsible = document.getElementById('med-responsible').value;
-        const role = document.getElementById('med-role').value;
-        const status = document.getElementById('med-status').value;
-        const date = document.getElementById('med-date').value;
-        
-        const nicksStr = activeNicks.join(' / ');
-        const encResp = encodeURIComponent(responsible);
-        const encNicks = encodeURIComponent(nicksStr); 
-        const encDate = encodeURIComponent(date);
-        const encRole = encodeURIComponent(role + "(a)"); 
-
-        let basePoints = 10;
-        if (role === 'Mentor' || role === 'Capacitador') basePoints = 15;
-        else if (role === 'Graduador') basePoints = 25;
-
-        let finalPoints = (status === 'Positivo') ? basePoints : (basePoints * -1);
-        let motivo = (status === 'Positivo') ? "Cumprimento%20de%20meta%20do%20cargo%20de" : "N%C3%A3o%20cumprimento%20de%20meta%20do%20cargo%20de";
-        
-        window.open(`https://www.policiarcc.com/h17-postagem-de-medalhas-af?responsavel_med=${encResp}&grupo_tarefas=Escola%20de%20Forma%C3%A7%C3%A3o%20de%20Executivos&periodo_med=${encDate}&gratificados_med=${encNicks}&numero_med=${finalPoints}&cargo_med=${encRole}&motivo_grat=${motivo}`, '_blank');
-    }
-
-    async function sendPunishments() {
-        const responsible = document.getElementById('med-responsible').value;
-        const role = document.getElementById('med-role').value;
-        const status = document.getElementById('med-status').value;
-
-        if(!responsible) { showToast("Preencha o campo de Responsável.", "warning"); return; }
-        if(status !== 'Negativo') { showToast("Punições apenas para Negativos.", "warning"); return; }
-        
-        const activeNicks = getActiveNicksFromFilter();
-        if (activeNicks === null) return;
-        if (activeNicks.length === 0) return;
-
-        const btn = document.getElementById('btn-punishment');
-        btn.disabled = true; btn.innerText = "Enviando...";
-
-        const today = new Date();
-        const endDate = new Date(today);
-        endDate.setDate(today.getDate() + 30);
-        
-        const dateTimeStr = new Date().toLocaleString('pt-BR');
-        const endDateStr = endDate.toLocaleDateString('pt-BR');
-        const motivo = `Não cumprimento das funções como ${role}(a)`;
-        const tipo = "Advertência Interna";
-
-        const rowsToSend = activeNicks.map(nick => [dateTimeStr, nick, tipo, motivo, endDateStr]);
-
-        try {
-            await fetch(LOG_SCRIPT_URL, {
-                method: 'POST', mode: 'no-cors', 
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify({ sheet: "Advertência", rows: rowsToSend })
-            });
-            showToast("Punições enviadas com sucesso!", "success");
-        } catch (error) {
-            console.error(error); showToast("Erro ao enviar punições.", "error");
-        } finally {
-            btn.disabled = false; btn.innerHTML = '<i class="fas fa-gavel"></i> <span>Postar Punição</span>';
-        }
-    }
-
-    async function openPMLink() {
-        const role = document.getElementById('med-role').value;
-        const status = document.getElementById('med-status').value;
-        const activeNicks = getActiveNicksFromFilter();
-        if (activeNicks === null) return;
-        if (activeNicks.length === 0) return;
-        
-        const btn = document.getElementById('btn-mp');
-        const originalText = btn.innerHTML;
-        const DELAY_MS = 6000; 
-
-        const confirmed = await showCustomConfirm(
-            "Confirmação de Envio de MP", 
-            `Você está prestes a enviar MP para <b>${activeNicks.length}</b> usuários ativos.<br><br>`
-        );
-
-        if (!confirmed) return;
-
-        btn.disabled = true;
-        
-        for(let i=0; i < activeNicks.length; i++) {
-            const nick = activeNicks[i];
-            btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Enviando (${i+1}/${activeNicks.length})`;
+            let cleanLine = line.trim();
             
-            const template = await getOceanMPTemplate(status, role, nick);
-            if(!template) { console.warn("Template inválido para", nick); continue; }
+            // IGNORE FILTERS based on user request
+            if (cleanLine.includes('DESEMPENHO SEMANAL') || cleanLine.includes('Página') || cleanLine.match(/^\d+\./)) return;
+            // Also ignore specific garbage
+            if (cleanLine.startsWith('✮ 01.')) return; 
 
-            const result = await sendPrivateMessage(nick, template.subject, template.message);
+            const upperLine = cleanLine.toUpperCase();
 
-            if(result === 'OK') {
-                console.log(`MP enviada para ${nick}`);
-            } else if (result === 'FLOOD') {
-                showToast(`Flood Control detectado para ${nick}. Pausando.`, "error");
-                break;
-            } else if (result === 'USER_NOT_FOUND') {
-                console.warn(`Usuário não encontrado: ${nick}`);
-            } else {
-                console.error(`Erro ao enviar para ${nick}`);
+            // Detect Sections
+            if(upperLine.includes('DESTAQUES')) { currentSection = 'highlight'; return; }
+            if(upperLine.includes('POSITIVOS')) { currentSection = 'positive'; return; }
+            if(upperLine.includes('NEGATIVOS')) { currentSection = 'negative'; return; }
+            if(upperLine.includes('CASO ESPECIAL')) { currentSection = 'ignore'; return; }
+
+            if(currentSection === 'none' || currentSection === 'ignore') return;
+            
+            // Clean brackets now
+            cleanLine = cleanLine.replace(/\[.*?\]/g, '').trim(); 
+            if(cleanLine.length < 2) return;
+
+            let temp = cleanLine;
+
+            // Remove starting bullets/stars
+            temp = temp.replace(/^[•\-✮\s]+/, ''); 
+            // Remove lingering stars/bullets inside
+            temp = temp.replace(/[•✮]/g, '');
+
+            // Remove points suffix: "10 Pontos", "- 10 Pontos", "10 Ponto"
+            // Regex: Optional space/dash, digits, optional space, Ponto(s)
+            temp = temp.replace(/[\s\-]*\d+\s*Pontos?.*$/i, '');
+            
+            // Safety: Remove just "Pontos" if no number
+            temp = temp.replace(/[\s\-]*Pontos?.*$/i, '');
+
+            let extractedNick = temp.trim().split(/\s+/)[0]; // Split by whitespace and take first
+
+            if(extractedNick && extractedNick.length > 1) {
+                 const checkUpper = extractedNick.toUpperCase();
+                 const forbidden = ['DESTAQUES', 'POSITIVOS', 'NEGATIVOS', 'CASO', 'ESPECIAL'];
+                 
+                 if(!forbidden.includes(checkUpper)) {
+                     if(currentSection === 'highlight' || currentSection === 'positive') {
+                         newPositives.push(extractedNick);
+                     } else if(currentSection === 'negative') {
+                         newNegatives.push(extractedNick);
+                     }
+                 }
             }
+        });
+        
+        generalData.positives = [...new Set(newPositives)];
+        generalData.negatives = [...new Set(newNegatives)];
 
-            if(i < activeNicks.length - 1) {
-                await delay(DELAY_MS);
-            }
+        renderGeneralResults();
+    }
+
+    function renderGeneralResults() {
+        const resPos = document.getElementById('gen-result-positive');
+        const resNeg = document.getElementById('gen-result-negative');
+        const statusPos = document.getElementById('gen-status-pos');
+        const statusNeg = document.getElementById('gen-status-neg');
+        
+        const btnPos = document.getElementById('btn-post-gen-pos');
+        const btnNeg = document.getElementById('btn-post-gen-neg');
+        const btnPunish = document.getElementById('btn-post-gen-punish');
+
+        // Logic for Comparison (INTERSECTION / FILTER) using Global Set
+        const hasFilter = globalGratificationSet.size > 0;
+        
+        // Se tiver filtro, mantém APENAS quem está no set (has). Se não tiver filtro, mantém todos.
+        const pendingPos = hasFilter ? generalData.positives.filter(n => globalGratificationSet.has(n.toLowerCase())) : generalData.positives;
+        const pendingNeg = hasFilter ? generalData.negatives.filter(n => globalGratificationSet.has(n.toLowerCase())) : generalData.negatives;
+        
+        // Debug/Status info
+        const rejectedPosCount = generalData.positives.length - pendingPos.length;
+        const rejectedNegCount = generalData.negatives.length - pendingNeg.length;
+
+        resPos.innerText = pendingPos.length > 0 ? pendingPos.join(' / ') : "Nenhum (após filtro)";
+        resNeg.innerText = pendingNeg.length > 0 ? pendingNeg.join(' / ') : "Nenhum (após filtro)";
+
+        if(hasFilter) {
+            statusPos.classList.remove('hidden');
+            statusPos.innerHTML = `<span class="font-bold text-green-600">${pendingPos.length} aceito(s)</span> | <span class="text-slate-400">${rejectedPosCount} ignorado(s)</span>`;
+            
+            statusNeg.classList.remove('hidden');
+            statusNeg.innerHTML = `<span class="font-bold text-red-600">${pendingNeg.length} aceito(s)</span> | <span class="text-slate-400">${rejectedNegCount} ignorado(s)</span>`;
+        } else {
+            statusPos.classList.add('hidden');
+            statusNeg.classList.add('hidden');
         }
 
-        btn.disabled = false;
-        btn.innerHTML = `<i class="fas fa-check"></i> Concluído`;
-        setTimeout(() => { btn.innerHTML = originalText; }, 3000);
-        showToast("Processo de envio de MPs finalizado.", "success");
+        btnPos.disabled = pendingPos.length === 0;
+        btnNeg.disabled = pendingNeg.length === 0;
+        btnPunish.disabled = pendingNeg.length === 0;
+    }
+
+    function openGeneralMedalLink(type) {
+        const responsible = document.getElementById('gen-responsible').value;
+        const role = document.getElementById('gen-role').value;
+        const date = generalData.date || document.getElementById('gen-detected-date').value;
+
+        if(!responsible) { showToast("Preencha o Responsável.", "warning"); return; }
+        
+        // Use Global Gratification List for filtering
+        const hasFilter = globalGratificationSet.size > 0;
+        const fullList = type === 'positive' ? generalData.positives : generalData.negatives;
+        
+        const list = hasFilter ? fullList.filter(n => globalGratificationSet.has(n.toLowerCase())) : fullList;
+
+        if(list.length === 0) { showToast("Lista vazia após filtro.", "info"); return; }
+
+        const nicksStr = list.join(' / ');
+        
+        let basePoints = 10;
+        if(role === 'Mentor' || role === 'Capacitador') basePoints = 15;
+        else if(role === 'Graduador') basePoints = 25;
+
+        let points = (type === 'positive') ? basePoints : (basePoints * -1);
+        let motivo = (type === 'positive') ? "Cumprimento de meta do cargo de" : "Não cumprimento de meta do cargo de";
+
+        const params = new URLSearchParams({
+            responsavel_med: responsible,
+            grupo_tarefas: "Escola de Formação de Executivos", 
+            periodo_med: date,
+            gratificados_med: nicksStr,
+            numero_med: points,
+            cargo_med: role + "(a)",
+            motivo_grat: motivo
+        });
+        
+        window.open(`https://www.policiarcc.com/h17-postagem-de-medalhas-af?${params.toString()}`, '_blank');
+    }
+
+    function openGeneralPunishmentLink() {
+        // Use Global Gratification List for filtering
+        const hasFilter = globalGratificationSet.size > 0;
+        const fullList = generalData.negatives;
+        
+        const listNeg = hasFilter ? fullList.filter(n => globalGratificationSet.has(n.toLowerCase())) : fullList;
+
+        if(listNeg.length === 0) { showToast("Lista vazia após filtro.", "info"); return; }
+        
+        const role = document.getElementById('gen-role').value;
+        const nicks = listNeg.join(' / ');
+        
+        const baseUrl = "https://www.policiarcc.com/h39-";
+        const params = new URLSearchParams();
+        params.set('form', 'advertencia');
+        params.set('nickname', nicks);
+        params.set('tipo_g1', 'Advertência Interna');
+        params.set('motivo_g1', `Não cumprimento de meta no cargo de ${role}`);
+        params.set('permissao', 'Ministério da Contabilidade');
+        params.set('comprovacoes_g1', 'https://www.policiarcc.com/t38367');
+        
+        window.open(`${baseUrl}?${params.toString()}`, '_blank');
     }
 
     const MASTER_BASE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRAm7FkCrMwblbAPjFnuxoxeZNHdAc18M7bm-qR3k2YqB_i047AJ0LduIJjJ9iP7ZqT7dGpzFWtY2mp/pub";
@@ -1229,20 +1084,52 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
     function parseMasterData(tsvText) {
         const rows = tsvText.split('\n').map(r => r.split('\t'));
         masterData = [];
+        
+        let lastYear = "";
+        let lastMonth = "";
+
         for (let i = 0; i < rows.length; i++) {
             const col = rows[i];
-            if (col.length < 4) continue;
-            const year = col[0] ? col[0].trim() : "";
-            const month = col[1] ? col[1].trim() : "";
-            const title = col[2] ? col[2].trim() : "";
-            const link = col[3] ? col[3].trim() : "";
-            if (!year || year.toLowerCase().includes('ano')) continue; 
-            masterData.push({ year, month, title, link });
+            if (col.length < 3) continue; 
+
+            let year = cleanCell(col[0]);
+            let month = cleanCell(col[1]);
+            let title = cleanCell(col[2]);
+            let link = cleanCell(col[3]);
+
+            // Skip header if detected
+            if (year.toLowerCase().includes('ano') && month.toLowerCase().includes('mês')) continue;
+            if (year.toLowerCase() === 'ano') continue;
+
+            // Fill down logic for merged cells
+            if (year) {
+                lastYear = year;
+            } else {
+                year = lastYear;
+            }
+
+            if (month) {
+                lastMonth = month;
+            } else {
+                month = lastMonth;
+            }
+
+            // We push only if we have a Year, Title and Link
+            if (year && title && link) {
+                masterData.push({ year, month, title, link });
+            }
         }
     }
 
     async function fetchTopicTokens(topicId) {
         forumTokens = null; 
+        
+        // Se não estiver no domínio do fórum, ignora silenciosamente para evitar erro de rede no console local
+        if(!window.location.hostname.includes('policiarcc.com') && !window.location.hostname.includes('policiarcc.forumeiros.com')) {
+            console.log("Ignorando tokens de fórum (Ambiente externo)");
+            return;
+        }
+
         try {
             const replyUrl = `/post?mode=reply&t=${topicId}`;
             const resp = await fetch(replyUrl);
@@ -1261,7 +1148,10 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
                 if(!action.startsWith('http')) action = window.location.origin + (action.startsWith('/') ? '' : '/') + action;
                 forumTokens = { action, inputs };
             }
-        } catch(e) { console.warn("Erro ao pre-carregar tokens: ", e); }
+        } catch(e) { 
+            // Silenciar erro de rede para não spammar toast, apenas logar
+            console.warn("Tokens de postagem: " + e.message); 
+        }
     }
 
     window.selectRank = async function(rankName) {
@@ -1330,7 +1220,7 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
         }
     });
 
-    function cleanCell(c) { return c ? c.replace(/^"|"$/g, '').trim() : ""; }
+    // cleanCell is now global
 
     async function fetchAndRenderTarget(originalUrl) {
         const config = RANK_CONFIG[currentRankKey];
@@ -1341,6 +1231,9 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
         
         try {
             await fetchMembersData();
+
+            // GRAB THE GRATIFICATION FILTER LIST FROM GLOBAL
+            const hasGratFilter = globalGratificationSet.size > 0;
 
             const idMatch = originalUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
             if (!idMatch) throw new Error("ID inválido.");
@@ -1358,7 +1251,7 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
                 let isSuperior = false;
                 let promotionStatus = "";
                 let promotionLabel = ""; 
-                let forcePositive = false; // Novo flag para Recém-Promovidos
+                let forcePositive = false; 
                 
                 const memberInfo = membersCache[nick.toLowerCase()];
                 
@@ -1371,23 +1264,20 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
                     else if(currentRankKey === 'Mentor' && !cargoLower.includes('mentor') && !cargoLower.includes('professor')) isHigherRank = true;
 
                     if (isHigherRank) {
-                        isSuperior = true;
-                        let limitDays = 7;
-                        if(currentRankKey === 'Graduador' && cargoLower.includes('estagiário')) limitDays = 16;
+                        let limitDays = 11;
+                        if(currentRankKey === 'Graduador') limitDays = 18;
 
                         if(daysDiff <= limitDays) {
+                            isSuperior = true;
                             promotionStatus = "Recém-Promovido(a)";
                             promotionLabel = "Recém-Promovido(a)";
                             
-                            // Lógica Específica para Recém-Promovidos
                             if (currentRankKey === 'Professor' && cargoLower.includes('mentor')) forcePositive = true;
                             if (currentRankKey === 'Mentor' && cargoLower.includes('capacitador')) forcePositive = true;
                             if (currentRankKey === 'Capacitador' && cargoLower.includes('graduador')) forcePositive = true;
                             if (currentRankKey === 'Graduador' && cargoLower.includes('estagiário')) forcePositive = true;
-                            
                         } else {
-                            promotionStatus = memberInfo.cargo; 
-                            promotionLabel = memberInfo.rawDate; 
+                            continue; // Remove da postagem se for superior e expirou prazo
                         }
                     }
                 }
@@ -1420,28 +1310,21 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
                 });
                 
                 const rawStatus = cleanCell(cols[config.statusCol]);
-                // Se já estiver na planilha como CE, IS, etc, deve vir com o código correto
                 let statusObj = statusMap[rawStatus] || { text: (rawStatus === 'N/A' || !rawStatus) ? "Indefinido" : rawStatus, code: "DEFAULT" };
 
                 const hasDonation = (currentRankKey === 'Professor' && doaCount > 0);
                 let justification = "";
                 
-                // PRIORIDADE DE STATUS:
-                
-                // 1. Recém-Promovidos específicos (Hierarquia)
                 if (forcePositive) {
                     statusObj = { text: "Positivo", code: "A" };
                 }
-                // 2. Status Especial já na planilha (CE, IS, L, etc) - Mantém o que está lá
                 else if (['[CE]', '[IS]', '[L]', '[RL]', '[GP]', '[DO]', '[ER]', '[J]'].includes(rawStatus)) {
                      statusObj = statusMap[rawStatus];
                      if (rawStatus === '[CE]') justification = "";
                 }
-                // 3. Superior Genérico
                 else if (isSuperior) {
                      statusObj = { text: promotionStatus, code: "PRO" };
                 }
-                // 4. Lógica de Pontos (Professor)
                 else if (currentRankKey === 'Professor') {
                     const totalApplied = classesSum + doaCount;
                     if (totalApplied >= 2) {
@@ -1450,6 +1333,22 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
                         statusObj = { text: "Negativo", code: "B" }; 
                     }
                 }
+
+                // --- NEW FILTERING LOGIC (GLOBAL LIST) ---
+                // If Negative ([B]):
+                // 1. Remove if NOT in Members List (membersCache) (Anti-Ghost)
+                // 2. Remove if NOT in Gratification List (globalGratificationSet) IF list provided
+                if (statusObj.code === 'B') {
+                    const inMembers = !!membersCache[nick.toLowerCase()];
+                    const inGratList = globalGratificationSet.has(nick.toLowerCase());
+
+                    // "conferir se o nickname negativo consta em B:B ... se não constar e for negativo, não deve aparecer"
+                    if (!inMembers) continue; 
+
+                    // "só irá remover os nicknames que não constarem e estiverem negativos" (based on gratification list)
+                    if (hasGratFilter && !inGratList) continue;
+                }
+                // ---------------------------
 
                 const avatarUrl = `https://www.habbo.com.br/habbo-imaging/avatarimage?user=${nick}&headonly=1&size=m`;
                 processedRows.push({ nick, classValues, total: totalPoints, statusObj, rawStatus, avatarUrl, isSuperior, justification, hasDonation, promotionLabel });
@@ -1460,7 +1359,7 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
             renderTable(processedRows);
         } catch (error) {
             console.error(error);
-            els.tableBody.innerHTML = '<tr><td colspan="15" class="text-center p-8 text-red-400 font-bold">Erro ao ler dados.</td></tr>';
+            els.tableBody.innerHTML = `<tr><td colspan="15" class="text-center p-8 text-red-400 font-bold">Erro ao ler dados: ${error.message}</td></tr>`;
         }
     }
 
@@ -1481,10 +1380,8 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
             const optionsHtml = statusOptions.map(opt => `<option value="${opt.val}" ${row.statusObj.code === opt.val.replace(/\[|\]/g,'') || (opt.val === '[A]' && row.statusObj.code === 'PRO') ? 'selected' : ''}>${opt.label}</option>`).join('');
             const rowClass = row.isSuperior ? 'row-superior' : '';
             
-            // Garantir que a seleção inicial reflita o código calculado ou o override
             let selectedVal = row.userOverrideStatus || (row.statusObj.code === 'PRO' ? '[A]' : `[${row.statusObj.code}]`.replace('[[', '[').replace(']]', ']'));
             
-            // Tratamento visual para o select inicial caso não bata com as options
             let displaySelectLabel = row.statusObj.text;
             if(row.statusObj.code === 'A' || row.statusObj.code === 'PRO') displaySelectLabel = 'Positivo';
             if(row.statusObj.code === 'B') displaySelectLabel = 'Negativo';
@@ -1690,7 +1587,7 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
             config.headerLabels.forEach((label, idx) => { if(footerSums[idx] > 0) footerBlocks += `[td style="border: none!important; overflow: hidden;padding: 0px"][table style="box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);border: none!important; overflow: hidden; border-radius: 5px; width: auto; padding: 0; margin: 5px;"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden;padding: 7px" bgcolor="647882"][color=white][b]${label}[/b][/color][/td][td style="border: none!important; overflow: hidden; padding: 7px" bgcolor="79a8c3"][color=white][b]${footerSums[idx]}[/b][/color][/td][/tr][/table][/td]`; });
         }
         
-        return `[font=Poppins][table style="border: none!important; overflow: hidden; border-radius: 15px; width: auto; padding: 0; margin: 0 auto; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); text-align: center;" bgcolor="#79a8c3"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden; padding: 7px"][table style="line-height: 0.2em; width: 100%; border-radius: 15px; border: none!important; overflow: hidden; line-height: 0.5em; margin: 0 auto;" bgcolor="#25313a"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden; padding: 14px"][img]https://i.imgur.com/S1tKqgc.gif[/img]\n[table style="border: none!important; border-radius: 40px; overflow: hidden; width: 40%; margin: -2% auto; top: 0.8em; position: relative; z-index: 10; justify-content: center;" bgcolor="79a8c3"][tr style="border: none!important"][td style="border: none!important;"][center][color=white][b][size=16]${periodText} - ${rankUpper}ES[/size][/b][/color][/center][/td][/tr][/table]\n[table style="width: 100%; border-radius: 15px; border: none!important; overflow: hidden; position: relative; z-index: 1; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);line-height: 1.4em; margin: 0 auto;" bgcolor="f8f8ff"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden"]\n\nSaudações, [color=#79a8c3][b]{USERNAME}[/b][/color]. Verifique abaixo a meta de ${rankUpper.toLowerCase()}es do período de [color=#79a8c3][b]${titleMeta}[/b][/color]:\n[center][table style="width: 20%; border-radius: 10px;border: none!important; overflow: hidden; line-height: 1em; margin-top:1em" bgcolor="79a8c3"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden; padding: 1px"][/td][/tr][/table][/center]\n\n[table style="border: none!important; border-radius: 40px; overflow: hidden; width: 40%; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); margin: -2% auto; top: 1.2em; right: 45%; position: relative; z-index: 10; justify-content: center;" bgcolor="79a8c3"][tr style="border: none!important"][td style="border: none!important;"][right][color=white][b][size=14]DESTAQUES[/size][/b][/color][/right][/td][/tr][/table]\n[table style="width: 100%; border-radius: 15px; border: none!important; overflow: hidden; position: relative; z-index: 1;line-height: 1.4em; margin: 0 auto;" bgcolor="EEEEF7"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden"]\n\n[justify]\n${blockDestaques || '[center]Sem destaques nesta semana.[/center]'}\n[/justify]\n[/tr][/td][/table]\n\n[table style="border: none!important; border-radius: 40px; overflow: hidden; width: 40%; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); margin: -2% auto; top: 1.2em; right: 45%; position: relative; z-index: 10; justify-content: center;" bgcolor="93c47d"][tr style="border: none!important"][td style="border: none!important;"][right][color=white][b][size=14]POSITIVOS[/size][/b][/color][/right][/td][/tr][/table]\n[table style="width: 100%; border-radius: 15px; border: none!important; overflow: hidden; position: relative; z-index: 1;line-height: 1.4em; margin: 0 auto;" bgcolor="EEEEF7"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden"]\n\n[justify]\n${blockPositivos || '[center]Nenhum positivo.[/center]'}\n[/justify]\n[/tr][/td][/table]\n\n[table style="border: none!important; border-radius: 40px; overflow: hidden; width: 40%; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); margin: -2% auto; top: 1.2em; right: 45%; position: relative; z-index: 10; justify-content: center;" bgcolor="e06666"][tr style="border: none!important"][td style="border: none!important;"][right][color=white][b][size=14]NEGATIVOS[/size][/b][/color][/right][/td][/tr][/table]\n[table style="width: 100%; border-radius: 15px; border: none!important; overflow: hidden; position: relative; z-index: 1;line-height: 1.4em; margin: 0 auto;" bgcolor="EEEEF7"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden"]\n\n[justify]\n${blockNegativos || '[center]Nenhum negativo.[/center]'}\n[/justify]\n[/tr][/td][/table]\n\n[table style="border: none!important; border-radius: 40px; overflow: hidden; width: 40%; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); margin: -2% auto; top: 1.2em; right: 45%; position: relative; z-index: 10; justify-content: center;" bgcolor="9BAFB8"][tr style="border: none!important"][td style="border: none!important;"][right][color=white][b][size=14]CASO ESPECIAL[/size][/b][/color][/right][/td][/tr][/table]\n[table style="width: 100%; border-radius: 15px; border: none!important; overflow: hidden; position: relative; z-index: 1;line-height: 1.4em; margin: 0 auto;" bgcolor="EEEEF7"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden"]\n\n[justify]\n${blockOutros || '[center]Nenhum caso especial.[/center]'}\n[/justify]\n[/tr][/td][/table]\n\n[center][font=Poppins][table style="border: none!important; overflow: hidden; border-radius: 5px; width: auto; margin: 1px;"][tr style="border: none!important; overflow: hidden"]\n${footerBlocks}\n[/tr][/table][/font][/center][/td][/tr][/table]\n\n[size=11][color=white]<i class="fas fa-code"></i> Desenvolvido por [b].Brendon[/b] | Todos os direitos reservados à [b]Escola de Formação de Executivos[/b].[/color][/size]\n[/td][/tr][/table][/td][/tr][/table][/font]`;
+        return `[font=Poppins][table style="border: none!important; overflow: hidden; border-radius: 15px; width: auto; padding: 0; margin: 0 auto; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); text-align: center;" bgcolor="#79a8c3"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden; padding: 7px"][table style="line-height: 0.2em; width: 100%; border-radius: 15px; border: none!important; overflow: hidden; line-height: 0.5em; margin: 0 auto;" bgcolor="#25313a"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden; padding: 14px"][img]https://i.imgur.com/S1tKqgc.gif[/img]\n[table style="border: none!important; border-radius: 40px; overflow: hidden; width: 40%; margin: -2% auto; top: 0.8em; position: relative; z-index: 10; justify-content: center;" bgcolor="79a8c3"][tr style="border: none!important"][td style="border: none!important;"][center][color=white][b][size=16]${periodText} - ${rankUpper}ES[/size][/b][/color][/center][/td][/tr][/table]\n[table style="width: 100%; border-radius: 15px; border: none!important; overflow: hidden; position: relative; z-index: 1; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);line-height: 1.4em; margin: 0 auto;" bgcolor="f8f8ff"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden"]\n\nSaudações, [color=#79a8c3][b]{USERNAME}[/b][/color]. Verifique abaixo a meta de ${rankUpper.toLowerCase()}es do período de [color=#79a8c3][b]${titleMeta}[/b][/color]:\n[center][table style="width: 20%; border-radius: 10px;border: none!important; overflow: hidden; line-height: 1em; margin-top:1em" bgcolor="79a8c3"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden; padding: 1px"][/td][/tr][/table][/center]\n\n[table style="border: none!important; border-radius: 40px; overflow: hidden; width: 40%; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); margin: -2% auto; top: 1.2em; right: 45%; position: relative; z-index: 10; justify-content: center;" bgcolor="79a8c3"][tr style="border: none!important"][td style="border: none!important;"][right][color=white][b][size=14]DESTAQUES[/size][/b][/color][/right][/td][/tr][/table]\n[table style="width: 100%; border-radius: 15px; border: none!important; overflow: hidden; position: relative; z-index: 1;line-height: 1.4em; margin: 0 auto;" bgcolor="EEEEF7"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden"]\n\n[justify]${blockDestaques || '[center]Sem destaques nesta semana.[/center]'}[/justify][/tr][/td][/table]\n\n[table style="border: none!important; border-radius: 40px; overflow: hidden; width: 40%; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); margin: -2% auto; top: 1.2em; right: 45%; position: relative; z-index: 10; justify-content: center;" bgcolor="93c47d"][tr style="border: none!important"][td style="border: none!important;"][right][color=white][b][size=14]POSITIVOS[/size][/b][/color][/right][/td][/tr][/table]\n[table style="width: 100%; border-radius: 15px; border: none!important; overflow: hidden; position: relative; z-index: 1;line-height: 1.4em; margin: 0 auto;" bgcolor="EEEEF7"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden"]\n\n[justify]${blockPositivos || '[center]Nenhum positivo.[/center]'}[/justify]\n[/tr][/td][/table]\n\n[table style="border: none!important; border-radius: 40px; overflow: hidden; width: 40%; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); margin: -2% auto; top: 1.2em; right: 45%; position: relative; z-index: 10; justify-content: center;" bgcolor="e06666"][tr style="border: none!important"][td style="border: none!important;"][right][color=white][b][size=14]NEGATIVOS[/size][/b][/color][/right][/td][/tr][/table]\n[table style="width: 100%; border-radius: 15px; border: none!important; overflow: hidden; position: relative; z-index: 1;line-height: 1.4em; margin: 0 auto;" bgcolor="EEEEF7"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden"]\n\n[justify]${blockNegativos || '[center]Nenhum negativo.[/center]'}[/justify][/tr][/td][/table]\n\n[table style="border: none!important; border-radius: 40px; overflow: hidden; width: 40%; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); margin: -2% auto; top: 1.2em; right: 45%; position: relative; z-index: 10; justify-content: center;" bgcolor="9BAFB8"][tr style="border: none!important"][td style="border: none!important;"][right][color=white][b][size=14]CASO ESPECIAL[/size][/b][/color][/right][/td][/tr][/table]\n[table style="width: 100%; border-radius: 15px; border: none!important; overflow: hidden; position: relative; z-index: 1;line-height: 1.4em; margin: 0 auto;" bgcolor="EEEEF7"][tr style="border: none!important; overflow: hidden"][td style="border: none!important; overflow: hidden"]\n\n[justify]${blockOutros || '[center]Nenhum caso especial.[/center]'}[/justify][/tr][/td][/table]\n\n[center][font=Poppins][table style="border: none!important; overflow: hidden; border-radius: 5px; width: auto; margin: 1px;"][tr style="border: none!important; overflow: hidden"]\n${footerBlocks}\n[/tr][/table][/font][/center][/td][/tr][/table]\n\n\n[size=11][color=white]<i class="fas fa-code"></i> Desenvolvido por [b].Brendon[/b] | Todos os direitos reservados à [b]Escola de Formação de Executivos[/b].[/color][/size]\n[/td][/tr][/table][/td][/tr][/table][/font]`;
     }
 
     function copyBBCode() {
@@ -1711,32 +1608,7 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
     async function postHighlights() {
         if(currentRankKey !== 'Professor') return;
         
-        const btn = document.getElementById('btn-destaque');
-        btn.disabled = true;
-        btn.innerText = "Postando...";
-        
-        try {
-            await fetchTopicTokens('38830'); 
-        } catch(e) {
-            showToast("Erro ao conectar com tópico de destaques.", "error");
-            btn.disabled = false; btn.innerHTML = '<i class="fas fa-trophy"></i> <span>Postar Destaques</span>';
-            return;
-        }
-
-        const bbcode = generateBBCodeString('highlight');
-
-        try {
-            submitForumPost(bbcode);
-            showToast("Destaques postados com sucesso!", "success");
-        } catch (err) {
-            console.error(err);
-            showToast("Erro ao postar destaques.", "error");
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-trophy"></i> <span>Postar Destaques</span>';
-            const config = RANK_CONFIG[currentRankKey];
-            if(config) fetchTopicTokens(config.topicId); 
-        }
+        window.open('https://www.policiarcc.com/h5-', '_blank');
     }
 
     async function sendToSheet(metaTitle, cargo, situacao, nicks) {
@@ -1788,18 +1660,6 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
         const btnToggleText = document.getElementById('btn-toggle-text');
         btnToggleText.innerText = "Editar BBCode";
         
-        btnToggleText.onclick = () => {
-             const container = document.getElementById('bbcode-editor-container');
-             const isHidden = container.classList.contains('hidden');
-             if(isHidden) {
-                 container.classList.remove('hidden');
-                 btnToggleText.innerText = "Ocultar Editor";
-             } else {
-                 container.classList.add('hidden');
-                 btnToggleText.innerText = "Editar BBCode";
-             }
-        };
-        
         const btnConfirm = document.getElementById('btn-modal-post-confirm');
         const btnCancel = document.getElementById('btn-modal-post-cancel');
         
@@ -1808,10 +1668,6 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
         
         btnCancel.disabled = false;
         btnCancel.innerText = "Cancelar";
-        
-        btnCancel.onclick = () => {
-             document.getElementById('post-confirm-modal').classList.remove('open');
-        };
         
         document.getElementById('post-confirm-modal').classList.add('open');
     }
@@ -1894,37 +1750,6 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
         unknown: { positive: [], negative: [] }
     };
 
-    const _originalToggleMedalSubTab = toggleMedalSubTab;
-    toggleMedalSubTab = function(tab) {
-        const generalView = document.getElementById('subview-general');
-        const leadView = document.getElementById('subview-leadership');
-        const minView = document.getElementById('subview-ministry');
-
-        const tabGen = document.getElementById('subtab-general');
-        const tabLead = document.getElementById('subtab-leadership');
-        const tabMin = document.getElementById('subtab-ministry');
-
-        generalView.classList.add('hidden');
-        leadView.classList.add('hidden');
-        minView.classList.add('hidden');
-        
-        tabGen.classList.remove('active');
-        tabLead.classList.remove('active');
-        tabMin.classList.remove('active');
-
-        if(tab === 'general') {
-            generalView.classList.remove('hidden');
-            tabGen.classList.add('active');
-        } else if (tab === 'leadership') {
-            leadView.classList.remove('hidden');
-            tabLead.classList.add('active');
-        } else if (tab === 'ministry') {
-            minView.classList.remove('hidden');
-            tabMin.classList.add('active');
-            if(Object.keys(membersCache).length === 0) fetchMembersData();
-        }
-    };
-
     function parseMinistryData() {
         const text = document.getElementById('min-input-text').value;
         const dateInput = document.getElementById('min-detected-date');
@@ -1950,20 +1775,34 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
         const lines = text.split('\n');
         
         lines.forEach(line => {
-            if(!line.includes('•')) return;
+            const cleanLine = line.trim();
+            if(!cleanLine.includes('•')) return;
 
-            const parts = line.split('•')[1].trim().split(/\t|\s{2,}/);
-            if(parts.length < 2) return;
+            const upperLine = cleanLine.toUpperCase();
+            const contentAfterBullet = cleanLine.split('•')[1].trim();
+            const upperContent = contentAfterBullet.toUpperCase();
 
-            const nick = parts[0].trim();
-            const statusRaw = parts[parts.length - 1].trim().toUpperCase();
-            
-            let isPositive = statusRaw.includes('REALIZADAS') && !statusRaw.includes('NÃO');
-            let isNegative = statusRaw.includes('NÃO REALIZADAS');
+            let extractedNick = "";
+            let isPositive = false;
+            let isNegative = false;
 
-            if (!isPositive && !isNegative) return; 
+            if (upperContent.includes("FUNÇÕES NÃO REALIZADAS")) {
+                const match = contentAfterBullet.match(/^(.*?)\s*FUNÇÕES NÃO REALIZADAS/i);
+                if (match && match[1]) {
+                    extractedNick = match[1].trim();
+                    isNegative = true;
+                }
+            } else if (upperContent.includes("FUNÇÕES REALIZADAS")) {
+                const match = contentAfterBullet.match(/^(.*?)\s*FUNÇÕES REALIZADAS/i);
+                if (match && match[1]) {
+                    extractedNick = match[1].trim();
+                    isPositive = true;
+                }
+            }
 
-            const memberInfo = membersCache[nick.toLowerCase()];
+            if (!extractedNick) return; 
+
+            const memberInfo = membersCache[extractedNick.toLowerCase()];
             let category = 'unknown';
 
             if(memberInfo) {
@@ -1973,7 +1812,7 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
             }
 
             const targetArray = isPositive ? ministryData[category].positive : ministryData[category].negative;
-            if(!targetArray.includes(nick)) targetArray.push(nick);
+            if(!targetArray.includes(extractedNick)) targetArray.push(extractedNick);
         });
 
         renderMinistryResults();
@@ -2100,6 +1939,28 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
         }
     }
 
+    function openMinistryPunishmentLink() {
+        const allNegatives = [
+            ...ministryData.ministers.negative, 
+            ...ministryData.interns.negative
+        ];
+        
+        if(allNegatives.length === 0) return;
+        
+        const nicks = allNegatives.join(' / ');
+        
+        const baseUrl = "https://www.policiarcc.com/h39-";
+        const params = new URLSearchParams();
+        params.set('form', 'advertencia');
+        params.set('nickname', nicks);
+        params.set('tipo_g1', 'Advertência Interna');
+        params.set('motivo_g1', `Não realização das funções do cargo (Ministério)`);
+        params.set('permissao', 'Ministério da Contabilidade');
+        params.set('comprovacoes_g1', 'https://www.policiarcc.com/t38367');
+        
+        window.open(`${baseUrl}?${params.toString()}`, '_blank');
+    }
+
     async function openMinistryMP() {
         const allNegatives = [
             ...ministryData.ministers.negative, 
@@ -2141,10 +2002,11 @@ Saudações, [color=#79a8c3][b]{USERNAME}[/b][/color]
 [size=11][color=white]Desenvolvido por [b]Brendon[/b] | Todos os direitos reservados à [b]Escola de Formação de Executivos[/b].[/color][/size]
 [/td][/tr][/table][/td][/tr][/table][/font]`;
 
-            const subject = `[EFE] ${tipoCarta} - LEIA!`;
-            
-            await sendPrivateMessage(nick, subject, bbcode);
-            await delay(5000); 
+            // Simulação de envio - Para funcionar precisa da função sendPrivateMessage
+             try {
+                // await sendPrivateMessage(nick, `[EFE] ${tipoCarta} - LEIA!`, bbcode);
+                // await delay(5000); 
+             } catch(e) { console.error(e); }
         }
 
         btn.disabled = false;
